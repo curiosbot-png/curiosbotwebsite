@@ -1,0 +1,3 @@
+# Snippet imported inside the public site block. Kept as its own file so staging/production differ without editing the Caddyfile.
+# STAGING: block search engines. At production cutover replace this file with public-extra.production.caddy (empty).
+header X-Robots-Tag "noindex, nofollow"

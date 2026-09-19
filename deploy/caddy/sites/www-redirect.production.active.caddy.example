@@ -1,0 +1,4 @@
+# PRODUCTION ONLY. Rename to www-redirect.active.caddy at cutover so www → apex (canonical host is https://curiosbot.com).
+www.curiosbot.com {
+	redir https://curiosbot.com{uri} permanent
+}

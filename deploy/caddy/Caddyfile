@@ -1,0 +1,41 @@
+# Caddy obtains and renews Let's Encrypt certificates automatically and redirects HTTP → HTTPS.
+{
+	email {$ACME_EMAIL}
+}
+
+# Shared security headers (the app also sets its own CSP)
+(secure) {
+	header {
+		Strict-Transport-Security "max-age=63072000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+	encode zstd gzip
+}
+
+# Public website (staging.<domain> first; add the apex/www at cutover via sites/production.caddy)
+{$PUBLIC_HOSTS} {
+	import secure
+	import /etc/caddy/sites/public-extra.caddy
+	reverse_proxy web:3000
+}
+
+# Admin portal: served from the same Next.js app; the app rewrites this host to /admin
+{$ADMIN_HOST} {
+	import secure
+	header X-Robots-Tag "noindex, nofollow"
+	reverse_proxy web:3000
+}
+
+# n8n: protected by proxy-level basic auth IN ADDITION to n8n's own owner login.
+{$AUTOMATION_HOST} {
+	import secure
+	header X-Robots-Tag "noindex, nofollow"
+	basic_auth {
+		{$N8N_BASIC_AUTH_USER} {$N8N_BASIC_AUTH_HASH}
+	}
+	reverse_proxy n8n:5678
+}
+
+# Environment-specific extras (staging noindex, production www redirect)
+import /etc/caddy/sites/*.active.caddy

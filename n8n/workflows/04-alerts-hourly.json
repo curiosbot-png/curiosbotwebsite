@@ -1,0 +1,134 @@
+{
+  "name": "Curiosbot \u00b7 Hourly alert evaluation \u2192 notify",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      },
+      "name": "Hourly",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://web:3000/api/internal/alerts",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "name": "Evaluate alerts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        220,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Curiosbot ingest (bearer)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "alerts",
+        "options": {}
+      },
+      "name": "Split alerts",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "no-reply@curiosbot.com",
+        "toEmail": "sales@curiosbot.com",
+        "subject": "={{ '[Curiosbot alert] ' + $json.rule_key }}",
+        "emailFormat": "text",
+        "text": "={{ $json.message + '\\nSee https://admin.curiosbot.com/alerts' }}",
+        "options": {}
+      },
+      "name": "Email owner",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        660,
+        0
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "",
+          "name": "Curiosbot SMTP"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Hourly": {
+      "main": [
+        [
+          {
+            "node": "Evaluate alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate alerts": {
+      "main": [
+        [
+          {
+            "node": "Split alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split alerts": {
+      "main": [
+        [
+          {
+            "node": "Email owner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "description": "The app evaluates spike/drop/trending/campaign rules and dedupes for 24h; only NEW alerts are returned and emailed."
+  },
+  "tags": [
+    {
+      "name": "curiosbot"
+    }
+  ]
+}

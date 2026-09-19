@@ -1,0 +1,132 @@
+# Curiosbot production stack for a Hostinger VPS.
+#   web       Next.js app (public site + admin.<domain>)        internal :3000
+#   postgres  PostgreSQL 16 (app DB + n8n DB)                    internal only — NEVER published
+#   n8n       Self-hosted automation                             internal :5678
+#   caddy     Reverse proxy, automatic HTTPS (Let's Encrypt)     public :80/:443
+#   backup    Nightly pg_dump + n8n data archive with rotation
+name: curiosbot
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  caddy:
+    <<: *restart
+    image: caddy:2-alpine
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      PUBLIC_HOSTS: ${PUBLIC_HOSTS:?set PUBLIC_HOSTS}
+      ADMIN_HOST: ${ADMIN_HOST:?set ADMIN_HOST}
+      AUTOMATION_HOST: ${AUTOMATION_HOST:?set AUTOMATION_HOST}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL}
+      N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER:?}
+      N8N_BASIC_AUTH_HASH: ${N8N_BASIC_AUTH_HASH:?}
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./deploy/caddy/sites:/etc/caddy/sites:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [web, n8n]
+    networks: [edge]
+
+  web:
+    <<: *restart
+    build: .
+    image: curiosbot-web:${WEB_TAG:-local}
+    environment:
+      DATABASE_URL: postgres://curiosbot:${POSTGRES_PASSWORD:?}@postgres:5432/curiosbot
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:?}
+      NEXT_PUBLIC_SHOW_CLIENT_NAMES: ${NEXT_PUBLIC_SHOW_CLIENT_NAMES:-false}
+      ADMIN_HOST: ${ADMIN_HOST}
+      ADMIN_URL: https://${ADMIN_HOST}
+      HASH_SALT: ${HASH_SALT:?}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1}
+      N8N_WEBHOOK_BASE_URL: http://n8n:5678/webhook
+      N8N_WEBHOOK_SECRET: ${N8N_WEBHOOK_SECRET:?}
+      N8N_INGEST_SECRET: ${N8N_INGEST_SECRET:?}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    networks: [edge, internal]
+
+  migrate:
+    image: curiosbot-web:${WEB_TAG:-local}
+    build: .
+    command: ["node", "scripts/migrate.mjs"]
+    environment:
+      DATABASE_URL: postgres://curiosbot:${POSTGRES_PASSWORD:?}@postgres:5432/curiosbot
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+    networks: [internal]
+
+  postgres:
+    <<: *restart
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:?}
+      APP_DB_PASSWORD: ${POSTGRES_PASSWORD:?}
+      N8N_DB_PASSWORD: ${N8N_DB_PASSWORD:?}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./deploy/postgres/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [internal]          # no `ports:` — the database is unreachable from outside the Docker network
+
+  n8n:
+    <<: *restart
+    image: docker.n8n.io/n8nio/n8n:${N8N_VERSION:-latest}   # pin N8N_VERSION in .env after first successful deploy
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_DATABASE: n8n
+      DB_POSTGRESDB_USER: n8n
+      DB_POSTGRESDB_PASSWORD: ${N8N_DB_PASSWORD:?}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?}
+      N8N_HOST: ${AUTOMATION_HOST}
+      N8N_PROTOCOL: https
+      WEBHOOK_URL: https://${AUTOMATION_HOST}/
+      N8N_PROXY_HOPS: "1"
+      N8N_SECURE_COOKIE: "true"
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_PERSONALIZATION_ENABLED: "false"
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "true"
+      GENERIC_TIMEZONE: Europe/Madrid
+      TZ: Europe/Madrid
+      EXECUTIONS_DATA_PRUNE: "true"
+      EXECUTIONS_DATA_MAX_AGE: "336"
+    volumes: [n8n_data:/home/node/.n8n]
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [edge, internal]
+
+  backup:
+    <<: *restart
+    image: postgres:16-alpine
+    environment:
+      PGPASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:?}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+    volumes:
+      - ./backups:/backups
+      - n8n_data:/n8n_data:ro
+      - ./deploy/backup/backup.sh:/usr/local/bin/backup.sh:ro
+    entrypoint: ["/bin/sh", "-c", "while true; do /usr/local/bin/backup.sh; sleep 86400; done"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [internal]
+
+networks:
+  edge:
+  internal:
+    internal: true                # containers on this network cannot reach the internet or be reached from it
+
+volumes:
+  pgdata:
+  n8n_data:
+  caddy_data:
+  caddy_config:

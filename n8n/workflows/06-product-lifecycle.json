@@ -1,0 +1,212 @@
+{
+  "name": "Curiosbot \u00b7 Product published \u2192 approval \u2192 distribution",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "product-published",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Curiosbot webhook (bearer)"
+        }
+      },
+      "webhookId": "product-published"
+    },
+    {
+      "parameters": {
+        "fromEmail": "no-reply@curiosbot.com",
+        "toEmail": "sales@curiosbot.com",
+        "subject": "={{ 'Approve distribution: ' + $json.body.slug }}",
+        "emailFormat": "text",
+        "text": "={{ 'Approval needed before any external distribution.\\nItem: ' + $json.body.url + '\\nApprove: ' + $execution.resumeUrl + '?decision=approve\\nReject: ' + $execution.resumeUrl + '?decision=reject' }}",
+        "options": {}
+      },
+      "name": "Ask human to approve",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        220,
+        0
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "",
+          "name": "Curiosbot SMTP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "httpMethod": "GET",
+        "options": {}
+      },
+      "name": "Wait for approval",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        0
+      ],
+      "webhookId": "product-published-approval"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.query.decision }}",
+              "rightValue": "approve",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "name": "Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://web:3000/api/ingest",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({type:\"run\", workflow:\"product-published\", status:\"success\", detail:{approved:true, note:\"External posting needs its own credentials; add channel nodes here\"}}) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "name": "Log approved (drafts only)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        880,
+        -60
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Curiosbot ingest (bearer)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://web:3000/api/ingest",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({type:\"run\", workflow:\"product-published\", status:\"success\", detail:{approved:false}}) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "name": "Log rejected",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        880,
+        80
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Curiosbot ingest (bearer)"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Ask human to approve",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ask human to approve": {
+      "main": [
+        [
+          {
+            "node": "Wait for approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for approval": {
+      "main": [
+        [
+          {
+            "node": "Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approved?": {
+      "main": [
+        [
+          {
+            "node": "Log approved (drafts only)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "description": "Fires when an admin publishes a product on the site. Distribution (LinkedIn/email/newsletter) is gated by a human email approval. Add posting nodes AFTER the 'Approved?' true branch once the owner connects those accounts. Never spends advertising budget."
+  },
+  "tags": [
+    {
+      "name": "curiosbot"
+    }
+  ]
+}

@@ -1,0 +1,213 @@
+{
+  "name": "Curiosbot \u00b7 Daily analytics ingestion (GA4 + Search Console)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 5 * * *"
+            }
+          ]
+        }
+      },
+      "name": "Daily 05:30",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://www.googleapis.com/webmasters/v3/sites/{{ encodeURIComponent('sc-domain:curiosbot.com') }}/searchAnalytics/query",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({startDate: $now.minus({days:3}).toFormat('yyyy-MM-dd'), endDate: $now.minus({days:1}).toFormat('yyyy-MM-dd'), dimensions:['date','query'], rowLimit:500}) }}",
+        "options": {}
+      },
+      "name": "Search Console (last 3 days)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        240,
+        -80
+      ],
+      "credentials": {
+        "googleOAuth2Api": {
+          "id": "",
+          "name": "Google Search Console"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = ($json.rows||[]).map(r=>({source:'gsc',metric_date:r.keys[0],dimension:'query',dimension_value:String(r.keys[1]).slice(0,500),metrics:{clicks:r.clicks,impressions:r.impressions,ctr:r.ctr,position:r.position}}));\nreturn [{json:{type:'metrics',rows}}];"
+      },
+      "name": "Map GSC rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.rows.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ]
+        }
+      },
+      "name": "Has rows?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        700,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://web:3000/api/ingest",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "name": "Push GSC \u2192 app",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        920,
+        -140
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Curiosbot ingest (bearer)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://web:3000/api/ingest",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({type:\"run\", workflow:\"analytics-ingestion\", status:\"success\", detail:{}}) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "name": "Log run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1140,
+        -140
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Curiosbot ingest (bearer)"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Daily 05:30": {
+      "main": [
+        [
+          {
+            "node": "Search Console (last 3 days)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Console (last 3 days)": {
+      "main": [
+        [
+          {
+            "node": "Map GSC rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map GSC rows": {
+      "main": [
+        [
+          {
+            "node": "Has rows?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has rows?": {
+      "main": [
+        [
+          {
+            "node": "Push GSC \u2192 app",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Push GSC \u2192 app": {
+      "main": [
+        [
+          {
+            "node": "Log run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "description": "Requires the owner to connect Google OAuth (Search Console read-only scope). Add a GA4 Data API node in the same pattern (source 'ga4'). Rows are only pushed when the platform returned data; nothing is fabricated."
+  },
+  "tags": [
+    {
+      "name": "curiosbot"
+    }
+  ]
+}

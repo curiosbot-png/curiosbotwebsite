@@ -1,0 +1,187 @@
+{
+  "name": "Curiosbot \u00b7 Lead captured \u2192 notify sales",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-captured",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Curiosbot webhook (bearer)"
+        }
+      },
+      "webhookId": "lead-captured"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1",
+              "name": "subject",
+              "type": "string",
+              "value": "={{ '[Curiosbot lead] ' + $json.body.name + ' \u2014 ' + ($json.body.company || 'no company') + ' (score ' + $json.body.score + ', ' + $json.body.stage + ')' }}"
+            },
+            {
+              "id": "2",
+              "name": "text",
+              "type": "string",
+              "value": "={{ 'New ' + $json.body.kind + ' request.\\nName: ' + $json.body.name + '\\nEmail: ' + $json.body.email + '\\nCompany: ' + ($json.body.company||'-') + '\\nScore: ' + $json.body.score + ' (' + $json.body.stage + ')\\nOpen in admin: https://admin.curiosbot.com/leads/' + $json.body.leadId }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Format",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "no-reply@curiosbot.com",
+        "toEmail": "sales@curiosbot.com",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "text",
+        "text": "={{ $json.text }}",
+        "options": {}
+      },
+      "name": "Email sales",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        440,
+        0
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "",
+          "name": "Curiosbot SMTP"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://web:3000/api/ingest",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({type:\"run\", workflow:\"lead-captured\", status:\"success\", detail:{}}) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "name": "Log success",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        660,
+        -60
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Curiosbot ingest (bearer)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://web:3000/api/ingest",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({type:\"run\", workflow:\"lead-captured\", status:\"error\", detail:{}}) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "name": "Log failure",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        660,
+        80
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Curiosbot ingest (bearer)"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Format",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format": {
+      "main": [
+        [
+          {
+            "node": "Email sales",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email sales": {
+      "main": [
+        [
+          {
+            "node": "Log success",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "description": "Internal notification only. Does not email the lead or add them to any list (consent-gated marketing is a separate, approval-based flow)."
+  },
+  "tags": [
+    {
+      "name": "curiosbot"
+    }
+  ]
+}

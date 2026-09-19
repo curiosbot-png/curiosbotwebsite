@@ -1,0 +1,17 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+        env: { DATABASE_URL: "postgres://x:x@localhost:5432/x" }
+      - run: python3 n8n/build_workflows.py && git diff --exit-code n8n/workflows
+      - run: docker compose --env-file .env.example config -q
+      - run: docker build -t curiosbot-web:ci .

@@ -1,0 +1,110 @@
+{
+  "name": "Curiosbot \u00b7 Weekly AI marketing analysis",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * 1"
+            }
+          ]
+        }
+      },
+      "name": "Monday 07:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://web:3000/api/internal/analyst",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "name": "Run analyst",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        220,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Curiosbot ingest (bearer)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "no-reply@curiosbot.com",
+        "toEmail": "sales@curiosbot.com",
+        "subject": "Curiosbot weekly AI analysis ready for review",
+        "emailFormat": "text",
+        "text": "={{ 'The weekly analysis produced ' + $json.insights.length + ' insight(s). Review them (with evidence) at https://admin.curiosbot.com/ai/analyst' }}",
+        "options": {}
+      },
+      "name": "Email summary",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        440,
+        0
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "",
+          "name": "Curiosbot SMTP"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Monday 07:00": {
+      "main": [
+        [
+          {
+            "node": "Run analyst",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run analyst": {
+      "main": [
+        [
+          {
+            "node": "Email summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "description": "Analysis is stored for review only; insights with untraceable numbers are dropped by the app's guard. Nothing is published or acted on automatically."
+  },
+  "tags": [
+    {
+      "name": "curiosbot"
+    }
+  ]
+}

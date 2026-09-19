@@ -1,0 +1,214 @@
+{
+  "name": "Curiosbot \u00b7 Qualified lead \u2192 approval \u2192 Salesforce",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "crm-sync",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Curiosbot webhook (bearer)"
+        }
+      },
+      "webhookId": "crm-sync"
+    },
+    {
+      "parameters": {
+        "fromEmail": "no-reply@curiosbot.com",
+        "toEmail": "sales@curiosbot.com",
+        "subject": "Approve CRM sync for a qualified lead",
+        "emailFormat": "text",
+        "text": "={{ 'Lead ' + ($json.body.name||'') + ' <' + ($json.body.email||'') + '>\\nApprove creating in Salesforce: ' + $execution.resumeUrl + '?decision=approve\\nReject: ' + $execution.resumeUrl + '?decision=reject' }}",
+        "options": {}
+      },
+      "name": "Ask human to approve",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        220,
+        0
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "",
+          "name": "Curiosbot SMTP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "httpMethod": "GET",
+        "options": {}
+      },
+      "name": "Wait for approval",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        0
+      ],
+      "webhookId": "crm-sync-approval"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $json.query.decision }}",
+              "rightValue": "approve",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "name": "Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "lead",
+        "operation": "create",
+        "company": "={{ $('Webhook').item.json.body.company || 'Unknown' }}",
+        "lastname": "={{ $('Webhook').item.json.body.name }}",
+        "additionalFields": {
+          "email": "={{ $('Webhook').item.json.body.email }}"
+        }
+      },
+      "name": "Create Salesforce lead (enable after OAuth)",
+      "type": "n8n-nodes-base.salesforce",
+      "typeVersion": 1,
+      "position": [
+        880,
+        -60
+      ],
+      "credentials": {
+        "salesforceOAuth2Api": {
+          "id": "",
+          "name": "Salesforce"
+        }
+      },
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://web:3000/api/ingest",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({type:\"run\", workflow:\"crm-sync\", status:\"success\", detail:{approved:$(\"Approved?\").item.json.query.decision}}) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "name": "Log",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1100,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Curiosbot ingest (bearer)"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Ask human to approve",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ask human to approve": {
+      "main": [
+        [
+          {
+            "node": "Wait for approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for approval": {
+      "main": [
+        [
+          {
+            "node": "Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approved?": {
+      "main": [
+        [
+          {
+            "node": "Create Salesforce lead (enable after OAuth)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Salesforce lead (enable after OAuth)": {
+      "main": [
+        [
+          {
+            "node": "Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "description": "Human approval is mandatory before any record is written to an external CRM. The Salesforce node ships DISABLED until the owner connects OAuth."
+  },
+  "tags": [
+    {
+      "name": "curiosbot"
+    }
+  ]
+}
